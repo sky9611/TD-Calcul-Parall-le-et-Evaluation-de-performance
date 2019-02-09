@@ -591,11 +591,10 @@ void ExpManager::opt_prom_compute_RNA(int indiv_id) {
 
                 if (prom != nullptr) {
                     int prom_pos;
-                    double prom_error;
+                    
                     int size = internal_organisms_[indiv_id]->length();
                     prom_pos = internal_organisms_[indiv_id]->promoters[rna_idx]->pos;
-                    prom_error = fabs(
-                            ((float) internal_organisms_[indiv_id]->promoters[rna_idx]->error));
+                    
 
                     /* Search for terminators */
                     int cur_pos =prom_pos + 22;
