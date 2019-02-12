@@ -108,15 +108,19 @@ ExpManager::ExpManager(int grid_height, int grid_width, int seed, double mutatio
 
     geometric_area_ = 0;
 
-
+    omp_set_num_threads(omp_get_max_threads());
+    float tmp = 0;
+    #pragma omp parallel for reduction(+:tmp)   
     for (int i = 0; i < 298; i++) {
-        geometric_area_+=((fabs(target[i]) + fabs(target[i+1])) / (600.0));
+        tmp+=((fabs(target[i]) + fabs(target[i+1])) / (600.0));
     }
+    geometric_area_ = tmp;
 
     printf("Initialized environmental target %f\n",geometric_area_);
 
 
     // Initializing the PRNGs
+    #pragma omp parallel for
     for (int indiv_id = 0; indiv_id < nb_indivs_; ++indiv_id) {
         dna_mutator_array_[indiv_id] = nullptr;
     }
@@ -147,6 +151,7 @@ ExpManager::ExpManager(int grid_height, int grid_width, int seed, double mutatio
     printf("Populating the environment\n");
 
     // Create a population of clones based on the randomly generated organism
+    #pragma omp parallel for
     for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
         prev_internal_organisms_[indiv_id] = internal_organisms_[indiv_id] =
             std::make_shared<Organism>(this, internal_organisms_[0]);
@@ -170,13 +175,17 @@ ExpManager::ExpManager(int time) {
     load(time);
 
     geometric_area_ = 0;
+    float tmp = 0;
+    #pragma omp parallel for reduction(+:tmp)
     for (int i = 0; i < 298; i++) {
-        geometric_area_+=((fabs(target[i]) + fabs(target[i+1])) / (600.0));
+        tmp+=((fabs(target[i]) + fabs(target[i+1])) / (600.0));
     }
+    geometric_area_ = tmp; 
 
     printf("Initialized environmental target %f\n", geometric_area_);
 
     dna_mutator_array_ = new DnaMutator*[nb_indivs_];
+    #pragma omp parallel for
     for (int indiv_id = 0; indiv_id < nb_indivs_; ++indiv_id) {
         dna_mutator_array_[indiv_id] = nullptr;
     }
@@ -476,7 +485,7 @@ void ExpManager::run_a_step(double w_max, double selection_pressure, bool first_
                  <<","<<duration_start_protein<<","<<duration_compute_protein<<","<<duration_translate_protein
                  <<","<<duration_compute_phenotype<<","<<duration_compute_phenotype<<","<<duration_compute_fitness<<std::endl;
     }
-	//openmp
+    #pragma omp parallel for
     for (int indiv_id = 1; indiv_id < nb_indivs_; indiv_id++) {
         prev_internal_organisms_[indiv_id] = internal_organisms_[indiv_id];
         internal_organisms_[indiv_id] = nullptr;
@@ -504,11 +513,10 @@ void ExpManager::run_a_step(double w_max, double selection_pressure, bool first_
     }
 
     std::vector<int> already_seen;
-	//openmp
+    #pragma omp parallel for
     for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
         if (std::find(already_seen.begin(), already_seen.end(), indiv_id) == already_seen.end()) {
             prev_internal_organisms_[indiv_id]->reset_stats();
-			//openmp
             for (int i = 0; i < prev_internal_organisms_[indiv_id]->rna_count_; i++) {
                 if (prev_internal_organisms_[indiv_id]->rnas[i] != nullptr) {
                     if (prev_internal_organisms_[indiv_id]->rnas[i]->is_coding_)
@@ -517,7 +525,6 @@ void ExpManager::run_a_step(double w_max, double selection_pressure, bool first_
                         prev_internal_organisms_[indiv_id]->nb_non_coding_RNAs++;
                 }
             }
-			//openmp
             for (int i = 0; i < prev_internal_organisms_[indiv_id]->protein_count_; i++) {
                 if (prev_internal_organisms_[indiv_id]->rnas[i] != nullptr) {
                     if (prev_internal_organisms_[indiv_id]->proteins[i]->is_functional) {
@@ -584,7 +591,7 @@ void ExpManager::opt_prom_compute_RNA(int indiv_id) {
 
         internal_organisms_[indiv_id]->rnas.resize(
                 internal_organisms_[indiv_id]->promoters.size());
-		//openmp
+        #pragma omp parallel for
         for (int prom_idx = 0; prom_idx< internal_organisms_[indiv_id]->promoters.size(); prom_idx++) {
 
             if (internal_organisms_[indiv_id]->promoters[prom_idx] != nullptr) {
@@ -652,18 +659,22 @@ void ExpManager::opt_prom_compute_RNA(int indiv_id) {
 
                             rna_length -= 21;
 
-                            if (rna_length > 0) {
-                                int glob_rna_idx = internal_organisms_[indiv_id]->rna_count_;
-                                internal_organisms_[indiv_id]->rna_count_ =
-                                        internal_organisms_[indiv_id]->rna_count_ + 1;
+                            #pragma omp critical
+                            {
+                                if (rna_length > 0) {
+                                    int glob_rna_idx = internal_organisms_[indiv_id]->rna_count_;
 
-                                internal_organisms_[indiv_id]->rnas[glob_rna_idx] = new RNA(
-                                        internal_organisms_[indiv_id]->promoters[rna_idx]->pos,
-                                        rna_end,
-                                        1.0 -
-                                        std::fabs(
-                                                ((float) internal_organisms_[indiv_id]->promoters[rna_idx]->error)) /
-                                        5.0, rna_length);
+                                    internal_organisms_[indiv_id]->rna_count_ =
+                                            internal_organisms_[indiv_id]->rna_count_ + 1;
+
+                                    internal_organisms_[indiv_id]->rnas[glob_rna_idx] = new RNA(
+                                            internal_organisms_[indiv_id]->promoters[rna_idx]->pos,
+                                            rna_end,
+                                            1.0 -
+                                            std::fabs(
+                                                    ((float) internal_organisms_[indiv_id]->promoters[rna_idx]->error)) /
+                                            5.0, rna_length);
+                                }
                             }
 
                         }
@@ -682,7 +693,7 @@ void ExpManager::opt_prom_compute_RNA(int indiv_id) {
 void ExpManager::compute_RNA(int indiv_id) {
     internal_organisms_[indiv_id]->rnas.resize(
             internal_organisms_[indiv_id]->promoters.size());
-	//openmp
+    #pragma omp parallel for
     for (int rna_idx = 0; rna_idx <
                           (int) internal_organisms_[indiv_id]->promoters.size(); rna_idx++) {
         {
@@ -720,20 +731,23 @@ void ExpManager::compute_RNA(int indiv_id) {
 
                     rna_length -= 21;
 
-                    if (rna_length >= 0) {
+                    #pragma omp critical
+                    {
+                        if (rna_length >= 0) {
 
 
-                        int glob_rna_idx = internal_organisms_[indiv_id]->rna_count_;
-                        internal_organisms_[indiv_id]->rna_count_ =
-                                internal_organisms_[indiv_id]->rna_count_ + 1;
+                            int glob_rna_idx = internal_organisms_[indiv_id]->rna_count_;
+                            internal_organisms_[indiv_id]->rna_count_ =
+                                    internal_organisms_[indiv_id]->rna_count_ + 1;
 
-                        internal_organisms_[indiv_id]->rnas[glob_rna_idx] = new RNA(
-                                internal_organisms_[indiv_id]->promoters[rna_idx]->pos,
-                                rna_end,
-                                1.0 -
-                                std::fabs(
-                                        ((float) internal_organisms_[indiv_id]->promoters[rna_idx]->error)) /
-                                5.0, rna_length);
+                            internal_organisms_[indiv_id]->rnas[glob_rna_idx] = new RNA(
+                                    internal_organisms_[indiv_id]->promoters[rna_idx]->pos,
+                                    rna_end,
+                                    1.0 -
+                                    std::fabs(
+                                            ((float) internal_organisms_[indiv_id]->promoters[rna_idx]->error)) /
+                                    5.0, rna_length);
+                        }
                     }
                 }
             }
@@ -748,7 +762,7 @@ void ExpManager::compute_RNA(int indiv_id) {
  * @param indiv_id : Unique identification number of the organism
  */
 void ExpManager::start_protein(int indiv_id) {
-	//openmp
+    #pragma omp parallel for
     for (int rna_idx = 0; rna_idx <
                           (int) internal_organisms_[indiv_id]->rna_count_; rna_idx++) {
         {
@@ -792,7 +806,7 @@ void ExpManager::start_protein(int indiv_id) {
 void ExpManager::compute_protein(int indiv_id) {
 
         int resize_to = 0;
-		//openmp
+        #pragma omp parallel for reduction(+:resize_to)
         for (int rna_idx = 0; rna_idx <
                               (int) internal_organisms_[indiv_id]->rna_count_; rna_idx++) {
             if (internal_organisms_[indiv_id]->rnas[rna_idx]->is_init_)
@@ -946,7 +960,7 @@ void ExpManager::compute_protein(int indiv_id) {
  * @param w_max : Maximum width of the triangle generated by a Protein
  */
 void ExpManager::translate_protein(int indiv_id, double w_max) {
-	//openmp
+    #pragma omp parallel for
     for (int protein_idx = 0; protein_idx <
                               (int) internal_organisms_[indiv_id]->protein_count_; protein_idx++) {
         {
@@ -1151,6 +1165,7 @@ void ExpManager::translate_protein(int indiv_id, double w_max) {
 
     std::map<int, Protein *> lookup;
 
+    #pragma omp parallel for
     for (int protein_idx = 0; protein_idx <
                               (int) internal_organisms_[indiv_id]->protein_count_; protein_idx++) {
 
@@ -1176,13 +1191,14 @@ void ExpManager::compute_phenotype(int indiv_id) {
     double activ_phenotype[300];
     double inhib_phenotype[300];
     {
-		//openmp
+        #pragma omp parallel for
         for (int fuzzy_idx = 0; fuzzy_idx < 300; fuzzy_idx++) {
             activ_phenotype[fuzzy_idx] = 0;
             inhib_phenotype[fuzzy_idx] = 0;
         }
     }
 
+    #pragma omp parallel for
     for (int protein_idx = 0; protein_idx <
                               (int) internal_organisms_[indiv_id]->protein_count_; protein_idx++) {
         if (internal_organisms_[indiv_id]->proteins[protein_idx]->is_init_) {
@@ -1219,7 +1235,6 @@ void ExpManager::compute_phenotype(int indiv_id) {
                     int count = 1;
 
                     // Updating value between x0 and x1
-					//openmp
                     for (int i = ix0 + 1; i < ix1; i++) {
                         if (internal_organisms_[indiv_id]->proteins[protein_idx]->h > 0)
                             activ_phenotype[i] += (incY * (count++));
@@ -1247,7 +1262,6 @@ void ExpManager::compute_phenotype(int indiv_id) {
                     count = 1;
 
                     // Updating value between x1 and x2
-					//openmp
                     for (int i = ix1 + 1; i < ix2; i++) {
                         if (internal_organisms_[indiv_id]->proteins[protein_idx]->h > 0)
                             activ_phenotype[i] +=
@@ -1266,7 +1280,7 @@ void ExpManager::compute_phenotype(int indiv_id) {
         }
     }
 
-	//openmp
+    #pragma omp parallel for
     for (int fuzzy_idx = 0; fuzzy_idx < 300; fuzzy_idx++) {
 
         if (activ_phenotype[fuzzy_idx] > 1)
@@ -1275,7 +1289,7 @@ void ExpManager::compute_phenotype(int indiv_id) {
             inhib_phenotype[fuzzy_idx] = -1;
 
     }
-	//openmp
+    #pragma omp parallel for
     for (int fuzzy_idx = 0; fuzzy_idx < 300; fuzzy_idx++) {
         internal_organisms_[indiv_id]->phenotype[fuzzy_idx] = activ_phenotype[fuzzy_idx] + inhib_phenotype[fuzzy_idx];
         if (internal_organisms_[indiv_id]->phenotype[fuzzy_idx] < 0)
@@ -1290,8 +1304,8 @@ void ExpManager::compute_phenotype(int indiv_id) {
  * @param selection_pressure : Selection pressure used during the selection process
  */
 void ExpManager::compute_fitness(int indiv_id, double selection_pressure) {
-    //openmp
-	for (int fuzzy_idx = 0; fuzzy_idx < 300; fuzzy_idx++) {
+    #pragma omp parallel for
+    for (int fuzzy_idx = 0; fuzzy_idx < 300; fuzzy_idx++) {
 
         if (internal_organisms_[indiv_id]->phenotype[fuzzy_idx] > 1)
             internal_organisms_[indiv_id]->phenotype[fuzzy_idx] = 1;
@@ -1304,12 +1318,14 @@ void ExpManager::compute_fitness(int indiv_id, double selection_pressure) {
     }
 
     internal_organisms_[indiv_id]->metaerror = 0;
-	//openmp reduction(+)
+
+    int tmp = internal_organisms_[indiv_id]->metaerror;
+    #pragma omp parallel for reduction(+:tmp)
     for (int fuzzy_idx = 0; fuzzy_idx < 299; fuzzy_idx++) {
-        internal_organisms_[indiv_id]->metaerror +=
-                ((std::fabs(internal_organisms_[indiv_id]->delta[fuzzy_idx]) +
-                  std::fabs(internal_organisms_[indiv_id]->delta[fuzzy_idx + 1])) /
-                 (600.0));
+        tmp += ((std::fabs(internal_organisms_[indiv_id]->delta[fuzzy_idx]) + 
+            std::fabs(internal_organisms_[indiv_id]->delta[fuzzy_idx + 1])) / (600.0));
+    internal_organisms_[indiv_id]->metaerror = tmp;
+    
     }
 
     internal_organisms_[indiv_id]->fitness = exp(
