@@ -185,7 +185,7 @@ ExpManager::ExpManager(int time) {
     printf("Initialized environmental target %f\n", geometric_area_);
 
     dna_mutator_array_ = new DnaMutator*[nb_indivs_];
-    #pragma omp parallel for
+    
     for (int indiv_id = 0; indiv_id < nb_indivs_; ++indiv_id) {
         dna_mutator_array_[indiv_id] = nullptr;
     }
@@ -485,7 +485,7 @@ void ExpManager::run_a_step(double w_max, double selection_pressure, bool first_
                  <<","<<duration_start_protein<<","<<duration_compute_protein<<","<<duration_translate_protein
                  <<","<<duration_compute_phenotype<<","<<duration_compute_phenotype<<","<<duration_compute_fitness<<std::endl;
     }
-    #pragma omp parallel for
+    
     for (int indiv_id = 1; indiv_id < nb_indivs_; indiv_id++) {
         prev_internal_organisms_[indiv_id] = internal_organisms_[indiv_id];
         internal_organisms_[indiv_id] = nullptr;
@@ -517,6 +517,7 @@ void ExpManager::run_a_step(double w_max, double selection_pressure, bool first_
     for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
         if (std::find(already_seen.begin(), already_seen.end(), indiv_id) == already_seen.end()) {
             prev_internal_organisms_[indiv_id]->reset_stats();
+
             for (int i = 0; i < prev_internal_organisms_[indiv_id]->rna_count_; i++) {
                 if (prev_internal_organisms_[indiv_id]->rnas[i] != nullptr) {
                     if (prev_internal_organisms_[indiv_id]->rnas[i]->is_coding_)
@@ -525,6 +526,7 @@ void ExpManager::run_a_step(double w_max, double selection_pressure, bool first_
                         prev_internal_organisms_[indiv_id]->nb_non_coding_RNAs++;
                 }
             }
+
             for (int i = 0; i < prev_internal_organisms_[indiv_id]->protein_count_; i++) {
                 if (prev_internal_organisms_[indiv_id]->rnas[i] != nullptr) {
                     if (prev_internal_organisms_[indiv_id]->proteins[i]->is_functional) {
@@ -591,7 +593,7 @@ void ExpManager::opt_prom_compute_RNA(int indiv_id) {
 
         internal_organisms_[indiv_id]->rnas.resize(
                 internal_organisms_[indiv_id]->promoters.size());
-        #pragma omp parallel for
+        
         for (int prom_idx = 0; prom_idx< internal_organisms_[indiv_id]->promoters.size(); prom_idx++) {
 
             if (internal_organisms_[indiv_id]->promoters[prom_idx] != nullptr) {
@@ -601,83 +603,64 @@ void ExpManager::opt_prom_compute_RNA(int indiv_id) {
 
                 if (prom != nullptr) {
                     int prom_pos;
-                    double prom_error;
+                    // double prom_error;
+                    int size = internal_organisms_[indiv_id]->length();
                     prom_pos = internal_organisms_[indiv_id]->promoters[rna_idx]->pos;
-                    prom_error = fabs(
-                            ((float) internal_organisms_[indiv_id]->promoters[rna_idx]->error));
+                    // prom_error = fabs(
+                    //         ((float) internal_organisms_[indiv_id]->promoters[rna_idx]->error));
 
-                        /* Search for terminators */
-                        int cur_pos =
-                                prom_pos + 22;
-                        cur_pos = cur_pos >= internal_organisms_[indiv_id]->length() ? cur_pos -
-                                internal_organisms_[indiv_id]->length() :
-                                  cur_pos;
-                        int start_pos = cur_pos;
-
-                        bool terminator_found = false;
-                        bool no_terminator = false;
-                        int term_dist_leading = 0;
-
-                        int loop_size = 0;
-
-                        while (!terminator_found) {
-                            loop_size++;
-                            for (int t_motif_id = 0; t_motif_id < 4; t_motif_id++)
-                                term_dist_leading = internal_organisms_[indiv_id]->dna_->terminator_at(cur_pos);
-
-                            if (term_dist_leading == 4)
-                                terminator_found = true;
-                            else {
-                                cur_pos = cur_pos + 1 >= internal_organisms_[indiv_id]->length() ? cur_pos + 1 -
-                                        internal_organisms_[indiv_id]->length()
-                                                                            :
-                                          cur_pos + 1;
-                                term_dist_leading = 0;
-                                if (cur_pos == start_pos) {
-                                    no_terminator = true;
-                                    terminator_found = true;
-                                }
+                    /* Search for terminators */
+                    int cur_pos =prom_pos + 22;
+                    cur_pos = cur_pos >= size ? cur_pos-size :cur_pos;
+                    
+                    bool terminator_found = false;
+                          
+                    while (!terminator_found && cur_pos+10<size){
+                        for(int step=0; step<4; step++){
+                            if(internal_organisms_[indiv_id]->dna_->seq_[cur_pos+step]!=internal_organisms_[indiv_id]->dna_->seq_[cur_pos+10-step]){
+                                cur_pos+=step+1;
+                                break;
                             }
+                            if(step==3)terminator_found=true;
                         }
+                        
+                    }    
+                        
+                    if (terminator_found) {
+                        
+                        int32_t rna_end =
+                                cur_pos + 10 >= size ?
+                                cur_pos + 10 - size :
+                                cur_pos + 10;
 
-                        if (!no_terminator) {
+                        int32_t rna_length = 0;
 
-                            int32_t rna_end =
-                                    cur_pos + 10 >= internal_organisms_[indiv_id]->length() ?
-                                    cur_pos + 10 - internal_organisms_[indiv_id]->length() :
-                                    cur_pos + 10;
+                        if (prom_pos
+                            > rna_end)
+                            rna_length = size -
+                                            prom_pos
+                                            + rna_end;
+                        else
+                            rna_length = rna_end - prom_pos;
 
-                            int32_t rna_length = 0;
+                        rna_length -= 21;
+                        #pragma omp critical
+                        {
+                        if (rna_length > 0) {
+                            int glob_rna_idx = internal_organisms_[indiv_id]->rna_count_;
+                            internal_organisms_[indiv_id]->rna_count_ =
+                                    internal_organisms_[indiv_id]->rna_count_ + 1;
 
-                            if (prom_pos
-                                > rna_end)
-                                rna_length = internal_organisms_[indiv_id]->length() -
-                                             prom_pos
-                                             + rna_end;
-                            else
-                                rna_length = rna_end - prom_pos;
-
-                            rna_length -= 21;
-
-                            #pragma omp critical
-                            {
-                                if (rna_length > 0) {
-                                    int glob_rna_idx = internal_organisms_[indiv_id]->rna_count_;
-
-                                    internal_organisms_[indiv_id]->rna_count_ =
-                                            internal_organisms_[indiv_id]->rna_count_ + 1;
-
-                                    internal_organisms_[indiv_id]->rnas[glob_rna_idx] = new RNA(
-                                            internal_organisms_[indiv_id]->promoters[rna_idx]->pos,
-                                            rna_end,
-                                            1.0 -
-                                            std::fabs(
-                                                    ((float) internal_organisms_[indiv_id]->promoters[rna_idx]->error)) /
-                                            5.0, rna_length);
-                                }
-                            }
-
+                            internal_organisms_[indiv_id]->rnas[glob_rna_idx] = new RNA(
+                                    internal_organisms_[indiv_id]->promoters[rna_idx]->pos,
+                                    rna_end,
+                                    1.0 -
+                                    std::fabs(
+                                            ((float) internal_organisms_[indiv_id]->promoters[rna_idx]->error)) /
+                                    5.0, rna_length);
                         }
+                        }
+                    }
                 }
             }
         }
@@ -693,7 +676,7 @@ void ExpManager::opt_prom_compute_RNA(int indiv_id) {
 void ExpManager::compute_RNA(int indiv_id) {
     internal_organisms_[indiv_id]->rnas.resize(
             internal_organisms_[indiv_id]->promoters.size());
-    #pragma omp parallel for
+    
     for (int rna_idx = 0; rna_idx <
                           (int) internal_organisms_[indiv_id]->promoters.size(); rna_idx++) {
         {
@@ -730,24 +713,23 @@ void ExpManager::compute_RNA(int indiv_id) {
                                 promoters[rna_idx]->pos;
 
                     rna_length -= 21;
-
                     #pragma omp critical
                     {
-                        if (rna_length >= 0) {
+                    if (rna_length >= 0) {
 
 
-                            int glob_rna_idx = internal_organisms_[indiv_id]->rna_count_;
-                            internal_organisms_[indiv_id]->rna_count_ =
-                                    internal_organisms_[indiv_id]->rna_count_ + 1;
+                        int glob_rna_idx = internal_organisms_[indiv_id]->rna_count_;
+                        internal_organisms_[indiv_id]->rna_count_ =
+                                internal_organisms_[indiv_id]->rna_count_ + 1;
 
-                            internal_organisms_[indiv_id]->rnas[glob_rna_idx] = new RNA(
-                                    internal_organisms_[indiv_id]->promoters[rna_idx]->pos,
-                                    rna_end,
-                                    1.0 -
-                                    std::fabs(
-                                            ((float) internal_organisms_[indiv_id]->promoters[rna_idx]->error)) /
-                                    5.0, rna_length);
-                        }
+                        internal_organisms_[indiv_id]->rnas[glob_rna_idx] = new RNA(
+                                internal_organisms_[indiv_id]->promoters[rna_idx]->pos,
+                                rna_end,
+                                1.0 -
+                                std::fabs(
+                                        ((float) internal_organisms_[indiv_id]->promoters[rna_idx]->error)) /
+                                5.0, rna_length);
+                    }
                     }
                 }
             }
@@ -762,7 +744,7 @@ void ExpManager::compute_RNA(int indiv_id) {
  * @param indiv_id : Unique identification number of the organism
  */
 void ExpManager::start_protein(int indiv_id) {
-    #pragma omp parallel for
+
     for (int rna_idx = 0; rna_idx <
                           (int) internal_organisms_[indiv_id]->rna_count_; rna_idx++) {
         {
@@ -806,7 +788,7 @@ void ExpManager::start_protein(int indiv_id) {
 void ExpManager::compute_protein(int indiv_id) {
 
         int resize_to = 0;
-        #pragma omp parallel for reduction(+:resize_to)
+        
         for (int rna_idx = 0; rna_idx <
                               (int) internal_organisms_[indiv_id]->rna_count_; rna_idx++) {
             if (internal_organisms_[indiv_id]->rnas[rna_idx]->is_init_)
@@ -960,7 +942,7 @@ void ExpManager::compute_protein(int indiv_id) {
  * @param w_max : Maximum width of the triangle generated by a Protein
  */
 void ExpManager::translate_protein(int indiv_id, double w_max) {
-    #pragma omp parallel for
+    
     for (int protein_idx = 0; protein_idx <
                               (int) internal_organisms_[indiv_id]->protein_count_; protein_idx++) {
         {
@@ -1164,8 +1146,7 @@ void ExpManager::translate_protein(int indiv_id, double w_max) {
 
 
     std::map<int, Protein *> lookup;
-
-    #pragma omp parallel for
+    
     for (int protein_idx = 0; protein_idx <
                               (int) internal_organisms_[indiv_id]->protein_count_; protein_idx++) {
 
@@ -1191,14 +1172,13 @@ void ExpManager::compute_phenotype(int indiv_id) {
     double activ_phenotype[300];
     double inhib_phenotype[300];
     {
-        #pragma omp parallel for
+        
         for (int fuzzy_idx = 0; fuzzy_idx < 300; fuzzy_idx++) {
             activ_phenotype[fuzzy_idx] = 0;
             inhib_phenotype[fuzzy_idx] = 0;
         }
     }
-
-    #pragma omp parallel for
+    
     for (int protein_idx = 0; protein_idx <
                               (int) internal_organisms_[indiv_id]->protein_count_; protein_idx++) {
         if (internal_organisms_[indiv_id]->proteins[protein_idx]->is_init_) {
@@ -1280,7 +1260,7 @@ void ExpManager::compute_phenotype(int indiv_id) {
         }
     }
 
-    #pragma omp parallel for
+    
     for (int fuzzy_idx = 0; fuzzy_idx < 300; fuzzy_idx++) {
 
         if (activ_phenotype[fuzzy_idx] > 1)
@@ -1289,7 +1269,7 @@ void ExpManager::compute_phenotype(int indiv_id) {
             inhib_phenotype[fuzzy_idx] = -1;
 
     }
-    #pragma omp parallel for
+    
     for (int fuzzy_idx = 0; fuzzy_idx < 300; fuzzy_idx++) {
         internal_organisms_[indiv_id]->phenotype[fuzzy_idx] = activ_phenotype[fuzzy_idx] + inhib_phenotype[fuzzy_idx];
         if (internal_organisms_[indiv_id]->phenotype[fuzzy_idx] < 0)
@@ -1304,7 +1284,6 @@ void ExpManager::compute_phenotype(int indiv_id) {
  * @param selection_pressure : Selection pressure used during the selection process
  */
 void ExpManager::compute_fitness(int indiv_id, double selection_pressure) {
-    #pragma omp parallel for
     for (int fuzzy_idx = 0; fuzzy_idx < 300; fuzzy_idx++) {
 
         if (internal_organisms_[indiv_id]->phenotype[fuzzy_idx] > 1)
@@ -1319,13 +1298,11 @@ void ExpManager::compute_fitness(int indiv_id, double selection_pressure) {
 
     internal_organisms_[indiv_id]->metaerror = 0;
 
-    int tmp = internal_organisms_[indiv_id]->metaerror;
-    #pragma omp parallel for reduction(+:tmp)
     for (int fuzzy_idx = 0; fuzzy_idx < 299; fuzzy_idx++) {
-        tmp += ((std::fabs(internal_organisms_[indiv_id]->delta[fuzzy_idx]) + 
-            std::fabs(internal_organisms_[indiv_id]->delta[fuzzy_idx + 1])) / (600.0));
-    internal_organisms_[indiv_id]->metaerror = tmp;
-    
+        internal_organisms_[indiv_id]->metaerror +=
+                ((std::fabs(internal_organisms_[indiv_id]->delta[fuzzy_idx]) +
+                  std::fabs(internal_organisms_[indiv_id]->delta[fuzzy_idx + 1])) /
+                 (600.0));
     }
 
     internal_organisms_[indiv_id]->fitness = exp(
@@ -1406,7 +1383,7 @@ void ExpManager::run_evolution(int nb_gen) {
                 prev_internal_organisms_[next_generation_reproducer_[indiv_id]]->length(),
                 mutation_rate_, indiv_id);
         dna_mutator_array_[indiv_id]->setMutate(true);
-
+        
         opt_prom_compute_RNA(indiv_id);
 
         start_protein(indiv_id);
