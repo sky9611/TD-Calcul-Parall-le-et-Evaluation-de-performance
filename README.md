@@ -5,7 +5,7 @@
 
 Apres l'optimisation de OpenMP, on a réduit 35% de temps d'exécution(testé sur un processeur de 4 coeurs). On a constaté que l'utilisation de OpenMP sur la plupart des boucles for n'a aucun effet, quelques-unes ont même un effet négatif. C'est peut-être parce que le nombre de coeurs n'est pas suffisant pour réaliser la parallélisation. Cependant, il y a deux utilisations de #pragma qui nous fournit une optimisation considérable de temps d'exécution:
 
--25-30% réduction de temps d'exécution,dans la fonction "void ExpManager::run_a_step"
+- 25-30% réduction de temps d'exécution,dans la fonction "void ExpManager::run_a_step"
         #pragma omp parallel for
         for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
             do_mutation(indiv_id);
