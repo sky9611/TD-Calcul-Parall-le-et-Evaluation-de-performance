@@ -1,65 +1,24 @@
 # Mini-Aevol : A mini-application based on the Aevol simulator
 
-A reduced version (from a model and implementation point of view) of Aevol.
 
-DO NOT USE IT TO SIMULATE BIOLOGICAL RESULTS ! See [http://www.aevol.fr](http://www.aevol.fr) for that !
+## Evaluation de performance pour OpenMP
 
-It must be used only to test HPC optimization of the code (parallel, vector, porting to new architecture...).
+Apres l'optimisation de OpenMP, on a réduit 35% de temps d'exécution(testé sur un processeur de 4 coeurs). On a constaté que l'utilisation de OpenMP sur la plupart des boucles for n'a aucun effet, quelques-unes ont même un effet négatif. C'est peut-être parce que le nombre de coeurs n'est pas suffisant pour réaliser la parallélisation. Cependant, il y a deux utilisations de #pragma qui nous fournit une optimisation considérable de temps d'exécution:
 
-## Getting Started
+-25-30% réduction de temps d'exécution,dans la fonction "void ExpManager::run_a_step"
+        #pragma omp parallel for
+        for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
+            do_mutation(indiv_id);
+        }
 
-These instructions will get you a copy of the project up and running on your local machine for development and testing purposes.
+- 5-10% réduction de temps d'exécution,dans la fonction de construction "ExpManager::ExpManager"
+        #pragma omp parallel for
+        for (int indiv_id = 0; indiv_id < nb_indivs_; indiv_id++) {
+            prev_internal_organisms_[indiv_id] = internal_organisms_[indiv_id] =
+                std::make_shared<Organism>(this, internal_organisms_[0]);
+            internal_organisms_[indiv_id]->indiv_id_ = indiv_id;
+            internal_organisms_[indiv_id]->parent_id_ = 0;
+            internal_organisms_[indiv_id]->global_id = AeTime::time()*nb_indivs_+indiv_id;
+        }
 
-### Prerequisites
-
-What things you need to install the software and how to install them.
-First, you will need to install zlib (and its headers).
-You also need to compile the given SFMT library (that manage the PRNG).
-
-```
-cd SFMT-src-1.4
-cmake .
-make
-```
-
-### Compilation
-
-The compilation is straightforward
-
-```
-cmake .
-make
-```
-
-It will produced the executable pdc_mini_aevol.
-
-## Running a simulation
-
-A help (-e or --help) is given to explain the different parameters.
-
-Basically, you must create a directory to store the simulation files (backup/checkpointing and stats files) and then run the simulation
-```
-mkdir simulation_example_1
-cd simulation_example_1
-../pdc_mini_aevol
-```
-
-You can also resume a simulation from a backup/checkpointing file (for example, resuming from the generation 1000):
-```
-cd simulation_example_1
-../pdc_mini_aevol -r 1000
-```
-
-## Model and Implementation
-
-More details about the model and its implementation are given at : 
-
-## Authors
-
-* **Jonathan Rouzaud-Cornabas** - *Initial work*
-
-For the authors of Aevol software, see [http://www.aevol.fr](http://www.aevol.fr)
-
-## License
-
-This project is licensed under the GPLv2 License
+Les autres utilisations de OpenMp n'apportent pas d'optimisation évidente. Surtout, il faut faire attention à l'utilisation de OpenMP sur les boucles compliquées, qui ralentit souvent beaucoup la vitesse.
